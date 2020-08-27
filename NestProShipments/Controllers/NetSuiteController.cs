@@ -34,33 +34,36 @@ namespace NestProShipments.Controllers
                 {
                     conn.Open();
 
-                    string query = "SELECT itfil.TRANSACTION_ID ItemFulfillmentId" +
-                                        ", (itfilLine.ITEM_COUNT * -1) Quantity" +
-                                        ", itfilLine.KIT_ID KitId" +
-                                        ", item.SKU " +
-                                        ", itfil.ACTUAL_SHIPPING_CARRIER Carrier " +
-                                        ", CASE " +
-                                            "WHEN soLine.NEST_PRO_PERSONAL_ITEM = 'F' THEN 'false' " +
-                                            "ELSE 'true' end as 'IsPersonal' " +
-                                    "FROM [NetSuite].[data].[TRANSACTIONS] itfil " +
-                                    "JOIN [NetSuite].[data].[TRANSACTION_LINES] itfilLine " +
-                                        "ON itfil.TRANSACTION_ID = itfilLine.TRANSACTION_ID " +
-                                        "AND itfil.TRANSACTION_TYPE = 'Item Fulfillment' " +
-                                    "JOIN [NetSuite].[data].[TRANSACTION_LINKS] link " +
-                                        "ON itfil.TRANSACTION_ID = link.APPLIED_TRANSACTION_ID " +
-                                        "AND itfilLine.TRANSACTION_LINE_ID = link.APPLIED_TRANSACTION_LINE_ID " +
-                                    "JOIN [NetSuite].[data].[TRANSACTIONS] so " +
-                                        "ON so.TRANSACTION_ID = link.ORIGINAL_TRANSACTION_ID " +
-                                    "JOIN [NetSuite].[data].[TRANSACTION_LINES] soLine " +
-                                        "ON soLine.TRANSACTION_ID = so.TRANSACTION_ID " +
-                                        "AND so.TRANSACTION_TYPE = 'Sales Order' " +
-                                        "AND soLine.TRANSACTION_LINE_ID = link.ORIGINAL_TRANSACTION_LINE_ID " +
-                                    "JOIN [NetSuite].[data].[ITEMS] item " +
-                                        "ON item.ITEM_ID = itfilLine.ITEM_ID " +
-                                    $"WHERE so.TRANSACTION_ID = '{netsuiteSalesOrderId}' " +
-                                    "AND itfil.TRANSACTION_ID not in @importedItemFulfillmentIds";
+                    string query = @"
+                        SELECT itfil.TRANSACTION_ID ItemFulfillmentId
+                            , (itfilLine.ITEM_COUNT * -1) Quantity
+                            , itfilLine.KIT_ID KitId
+                            , item.SKU 
+                            , itfil.ACTUAL_SHIPPING_CARRIER Carrier 
+                            , CASE WHEN soLine.NEST_PRO_PERSONAL_ITEM = 'F' THEN 'false' 
+                                ELSE 'true' end as 'IsPersonal' 
+                        FROM [NetSuite].[data].[TRANSACTIONS] itfil 
+                        JOIN [NetSuite].[data].[TRANSACTION_LINES] itfilLine 
+                            ON itfil.TRANSACTION_ID = itfilLine.TRANSACTION_ID 
+                            AND itfil.TRANSACTION_TYPE = 'Item Fulfillment' 
+                        JOIN [NetSuite].[data].[TRANSACTION_LINKS] link 
+                            ON itfil.TRANSACTION_ID = link.APPLIED_TRANSACTION_ID 
+                            AND itfilLine.TRANSACTION_LINE_ID = link.APPLIED_TRANSACTION_LINE_ID 
+                        JOIN [NetSuite].[data].[TRANSACTIONS] so
+                            ON so.TRANSACTION_ID = link.ORIGINAL_TRANSACTION_ID 
+                        JOIN [NetSuite].[data].[TRANSACTION_LINES] soLine 
+                            ON soLine.TRANSACTION_ID = so.TRANSACTION_ID 
+                            AND so.TRANSACTION_TYPE = 'Sales Order' 
+                            AND soLine.TRANSACTION_LINE_ID = link.ORIGINAL_TRANSACTION_LINE_ID 
+                        JOIN [NetSuite].[data].[ITEMS] item 
+                            ON item.ITEM_ID = itfilLine.ITEM_ID 
+                        WHERE so.TRANSACTION_ID = @netsuiteSalesOrderId 
+                        AND itfil.TRANSACTION_ID not in @importedItemFulfillmentIds";
 
-                    List<ItemFulfillmentLine> itemFulfillments = conn.Query<ItemFulfillmentLine>(query, new { importedItemFulfillmentIds }, commandTimeout: 500).ToList();
+                    List<ItemFulfillmentLine> itemFulfillments = conn.Query<ItemFulfillmentLine>(
+                        query, 
+                        new { netsuiteSalesOrderId, importedItemFulfillmentIds }, 
+                        commandTimeout: 500).ToList();
 
                     conn.Close();
 
@@ -80,12 +83,13 @@ namespace NestProShipments.Controllers
                 {
                     conn.Open();
 
-                    string query = "SELECT TRACKING_NUMBER " +
-                                   "FROM NetSuite.data.SHIPMENT_PACKAGES " +
-                                   $"WHERE ITEM_FULFILLMENT_ID = '{itemFulfillmentId}' " +
-                                   "AND TRACKING_NUMBER is not null";
+                    string query = @"
+                        SELECT TRACKING_NUMBER 
+                        FROM NetSuite.data.SHIPMENT_PACKAGES 
+                        WHERE ITEM_FULFILLMENT_ID = @itemFulfillmentId 
+                        AND TRACKING_NUMBER is not null";
 
-                    List<string> trackingNumbers = conn.Query<string>(query, commandTimeout: 500).ToList();
+                    List<string> trackingNumbers = conn.Query<string>(query, new { itemFulfillmentId }, commandTimeout: 500).ToList();
 
                     conn.Close();
 
@@ -93,8 +97,8 @@ namespace NestProShipments.Controllers
                 }
                 catch (Exception ex)
                 {
-                    var errorMessage = $"Error in GetTrackingNumbersByItemFulfillment. Error: {ex}";
-                    Log.Error(errorMessage);
+                    var errorMessage = "Error in GetTrackingNumbersByItemFulfillment.";
+                    Log.Error(errorMessage, ex);
                     throw new Exception(errorMessage);
                 }
             }
@@ -123,22 +127,22 @@ namespace NestProShipments.Controllers
                     {
                         conn.Open();
 
-                        string query = "SELECT SUM(itgp.QUANTITY) SumOfKitItems " +
-                                       "FROM NetSuite.data.ITEMS it " +
-                                       "JOIN NetSuite.data.ITEM_GROUP itgp " +
-                                       "ON it.ITEM_ID = itgp.PARENT_ID " +
-                                       $"WHERE it.ITEM_ID = '{kitId}' " +
-                                       "GROUP BY itgp.PARENT_ID";
+                        string query = @"
+                            SELECT SUM(itgp.QUANTITY) SumOfKitItems 
+                            FROM NetSuite.data.ITEMS it 
+                            JOIN NetSuite.data.ITEM_GROUP itgp 
+                            ON it.ITEM_ID = itgp.PARENT_ID 
+                            WHERE it.ITEM_ID = @kitId 
+                            GROUP BY itgp.PARENT_ID";
 
-                        int sumOfKitItems = conn.QuerySingle<int>(query, commandTimeout: 500);
+                        int sumOfKitItems = conn.QuerySingle<int>(query, new { kitId }, commandTimeout: 500);
 
                         return sumOfKitItems;
-
                     }
                     catch (Exception ex)
                     {
-                        var errorMessage = $"Error in GetKitMembers. Error: {ex}";
-                        Log.Error(errorMessage);
+                        var errorMessage = "Error in GetKitMembers.";
+                        Log.Error(errorMessage, ex);
                         throw;
                     }
                 }
@@ -168,11 +172,12 @@ namespace NestProShipments.Controllers
                     {
                         conn.Open();
 
-                        string query = "SELECT SKU " +
-                                       "FROM NetSuite.data.ITEMS " +
-                                       $"WHERE ITEM_ID = '{kitId}'";
+                        string query = @"
+                            SELECT SKU 
+                            FROM NetSuite.data.ITEMS 
+                            WHERE ITEM_ID = @kitId";
 
-                        string kitSKU = conn.QuerySingle<string>(query, commandTimeout: 500);
+                        string kitSKU = conn.QuerySingle<string>(query, new { kitId }, commandTimeout: 500);
 
                         return kitSKU;
 
